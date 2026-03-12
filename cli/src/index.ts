@@ -542,6 +542,9 @@ async function initializeCli(options: InitOptions): Promise<CliContext> {
 	await StateManager.initialize(storageContext)
 	await ErrorService.initialize()
 
+	// Initialize knowledge store (optional, non-blocking)
+	initializeKnowledgeStore(StateManager.get())
+
 	const webview = HostProvider.get().createWebviewProvider() as CliWebviewProvider
 	const controller = webview.controller
 
@@ -1147,6 +1150,23 @@ program
 			await showWelcome(options)
 		}
 	})
+
+async function initializeKnowledgeStore(stateManager: StateManager): Promise<void> {
+	try {
+		const enabled = stateManager.getGlobalSettingsKey("knowledgeStoreEnabled")
+		if (!enabled) {
+			return
+		}
+
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		KnowledgeStoreManager.initialize({
+			ollamaBaseUrl: stateManager.getGlobalSettingsKey("ollamaBaseUrl"),
+			embeddingModel: stateManager.getGlobalSettingsKey("knowledgeStoreEmbeddingModel"),
+		})
+	} catch (error) {
+		Logger.warn(`Knowledge store initialization failed (non-fatal): ${error}`)
+	}
+}
 
 // Parse and run
 if (process.env.VITEST !== "true") {
