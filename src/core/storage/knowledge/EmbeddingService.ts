@@ -1,9 +1,25 @@
 import { Ollama } from "ollama"
-import { fetch } from "@/shared/net"
 import { Logger } from "@/shared/services/Logger"
 
 const DEFAULT_MODEL = "nomic-embed-text"
 const DEFAULT_DIMENSIONS = 768
+
+// Lazy-load the proxy-aware fetch to avoid pulling in the heavy @/shared/net
+// import chain (which transitively depends on vscode) at module load time.
+// Falls back to global fetch when the proxy wrapper is unavailable (e.g., standalone scripts).
+let _proxyFetch: typeof globalThis.fetch | undefined
+async function getProxyAwareFetch(): Promise<typeof globalThis.fetch> {
+	if (_proxyFetch) {
+		return _proxyFetch
+	}
+	try {
+		const net = await import("@/shared/net")
+		_proxyFetch = net.fetch
+	} catch {
+		_proxyFetch = globalThis.fetch
+	}
+	return _proxyFetch
+}
 
 export class EmbeddingService {
 	private client: Ollama | undefined
@@ -19,11 +35,12 @@ export class EmbeddingService {
 		this.dimensions = DEFAULT_DIMENSIONS
 	}
 
-	private ensureClient(): Ollama {
+	private async ensureClient(): Promise<Ollama> {
 		if (!this.client) {
+			const proxyFetch = await getProxyAwareFetch()
 			const clientOptions: Record<string, any> = {
 				host: this.baseUrl,
-				fetch,
+				fetch: proxyFetch,
 			}
 
 			if (this.apiKey) {
@@ -39,7 +56,7 @@ export class EmbeddingService {
 
 	async embed(text: string): Promise<Float32Array | null> {
 		try {
-			const client = this.ensureClient()
+			const client = await this.ensureClient()
 			const response = await client.embed({ model: this.model, input: text })
 			const values = response.embeddings[0]
 			if (!values) {
@@ -55,7 +72,7 @@ export class EmbeddingService {
 
 	async embedBatch(texts: string[]): Promise<(Float32Array | null)[]> {
 		try {
-			const client = this.ensureClient()
+			const client = await this.ensureClient()
 			const response = await client.embed({ model: this.model, input: texts })
 			return response.embeddings.map((values) => {
 				if (!values) {
@@ -72,7 +89,7 @@ export class EmbeddingService {
 
 	async isAvailable(): Promise<boolean> {
 		try {
-			const client = this.ensureClient()
+			const client = await this.ensureClient()
 			const models = await client.list()
 			return models.models.some((m) => m.name.startsWith(this.model))
 		} catch {
@@ -87,7 +104,7 @@ export class EmbeddingService {
 				return true
 			}
 			Logger.log(`EmbeddingService: Pulling model ${this.model}...`)
-			const client = this.ensureClient()
+			const client = await this.ensureClient()
 			await client.pull({ model: this.model })
 			Logger.log(`EmbeddingService: Model ${this.model} pulled successfully`)
 			return true

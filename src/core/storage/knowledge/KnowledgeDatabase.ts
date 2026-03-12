@@ -1,8 +1,8 @@
 import Database from "better-sqlite3"
 import * as fs from "fs"
 import { existsSync, mkdirSync, unlinkSync } from "fs"
+import os from "os"
 import * as path from "path"
-import { getClineHomePath } from "@/core/storage/disk"
 import { Logger } from "@/shared/services/Logger"
 
 const CURRENT_SCHEMA_VERSION = 1
@@ -13,7 +13,7 @@ export class KnowledgeDatabase {
 	private dbPath: string
 
 	constructor(dataDir?: string) {
-		const dir = dataDir ?? path.join(getClineHomePath(), "data")
+		const dir = dataDir ?? path.join(os.homedir(), ".cline", "data")
 		this.dbPath = path.join(dir, "knowledge.db")
 
 		const dbDir = path.dirname(this.dbPath)

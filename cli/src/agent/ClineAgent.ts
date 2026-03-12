@@ -189,7 +189,9 @@ export class ClineAgent implements acp.Agent {
 		await StateManager.initialize(this.ctx.storageContext)
 
 		// Initialize knowledge store (non-blocking, gracefully degrades if Ollama unavailable)
-		this.initializeKnowledgeStore().catch(() => {})
+		this.initializeKnowledgeStore().catch((error) => {
+			Logger.warn(`[ClineAgent] Knowledge store initialization failed: ${error}`)
+		})
 
 		return {
 			protocolVersion: PROTOCOL_VERSION,
