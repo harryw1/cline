@@ -1,4 +1,3 @@
-import Database from "better-sqlite3"
 import * as fs from "fs"
 import { existsSync, mkdirSync, unlinkSync } from "fs"
 import os from "os"
@@ -8,8 +7,36 @@ import { Logger } from "@/shared/services/Logger"
 const CURRENT_SCHEMA_VERSION = 1
 const STALE_LOCK_TIMEOUT = 1 * 60 * 1000 // 1 minute
 
+/**
+ * Minimal interface for the subset of SQLite APIs we use,
+ * compatible with both better-sqlite3 and bun:sqlite.
+ */
+interface SqliteDatabase {
+	exec(sql: string): void
+	prepare(sql: string): {
+		get(...params: any[]): any
+		all(...params: any[]): any[]
+		run(...params: any[]): any
+	}
+	close(): void
+}
+
+const isBun = typeof (globalThis as any).Bun !== "undefined"
+
+function openDatabase(dbPath: string): SqliteDatabase {
+	if (isBun) {
+		// Dynamic string construction prevents esbuild from resolving this at bundle time.
+		// At runtime in Bun, require("bun:sqlite") is available as a built-in module.
+		const bunSqlite = "bun" + ":" + "sqlite"
+		const { Database } = require(bunSqlite)
+		return new Database(dbPath) as SqliteDatabase
+	}
+	const Database = require("better-sqlite3")
+	return new Database(dbPath) as SqliteDatabase
+}
+
 export class KnowledgeDatabase {
-	private db!: Database.Database
+	private db!: SqliteDatabase
 	private dbPath: string
 
 	constructor(dataDir?: string) {
@@ -44,13 +71,13 @@ export class KnowledgeDatabase {
 				fd = fs.openSync(lockFile, "wx")
 				fs.writeFileSync(fd, Date.now().toString())
 
-				const dbExists = existsSync(this.dbPath)
+				const dbExists = existsSync(this.dbPath) && fs.statSync(this.dbPath).size > 0
 
 				if (!dbExists) {
-					this.db = new Database(this.dbPath)
+					this.db = openDatabase(this.dbPath)
 					this.initializeSchema()
 				} else {
-					this.db = new Database(this.dbPath)
+					this.db = openDatabase(this.dbPath)
 					this.runMigrations()
 				}
 			} finally {
@@ -200,7 +227,7 @@ export class KnowledgeDatabase {
 		}
 	}
 
-	getDb(): Database.Database {
+	getDb(): SqliteDatabase {
 		return this.db
 	}
 
