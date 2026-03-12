@@ -79,6 +79,9 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 
 	telemetryService.captureExtensionActivated()
 
+	// =============== Knowledge Store (optional, non-blocking) ===============
+	initializeKnowledgeStore(stateManager)
+
 	return webview
 }
 
@@ -151,6 +154,10 @@ async function checkWorktreeAutoOpen(stateManager: StateManager): Promise<void> 
  * Performs cleanup when Cline is deactivated that is common to all platforms.
  */
 export async function tearDown(): Promise<void> {
+	// Shut down knowledge store
+	const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+	await KnowledgeStoreManager.getInstance()?.shutdown()
+
 	AgentConfigLoader.getInstance()?.dispose()
 	PostHogClientProvider.getInstance().dispose()
 	telemetryService.dispose()
@@ -170,4 +177,25 @@ export async function tearDown(): Promise<void> {
 
 	// Clean up test mode
 	cleanupTestMode()
+}
+
+/**
+ * Initializes the knowledge store in the background (non-blocking).
+ * Silently no-ops if Ollama or the embedding model is unavailable.
+ */
+async function initializeKnowledgeStore(stateManager: StateManager): Promise<void> {
+	try {
+		const enabled = stateManager.getGlobalSettingsKey("knowledgeStoreEnabled")
+		if (!enabled) {
+			return
+		}
+
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		KnowledgeStoreManager.initialize({
+			ollamaBaseUrl: stateManager.getGlobalSettingsKey("ollamaBaseUrl"),
+			embeddingModel: stateManager.getGlobalSettingsKey("knowledgeStoreEmbeddingModel"),
+		})
+	} catch (error) {
+		Logger.warn(`Knowledge store initialization failed (non-fatal): ${error}`)
+	}
 }

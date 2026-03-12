@@ -214,6 +214,9 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 			await config.callbacks.updateFCListFromToolResponse(block.params.task_progress)
 		}
 
+		// Index the completed conversation in the knowledge store (non-blocking, best-effort)
+		this.indexConversationInKnowledgeStore(config).catch(() => {})
+
 		// Run TaskComplete hook BEFORE presenting the "Start New Task" button
 		// At this point we know: task is complete, checkpoint saved, result shown to user
 		await this.runTaskCompleteHook(config, block)
@@ -340,6 +343,30 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 		} catch (error) {
 			// TaskComplete hook failed - non-fatal, just log
 			Logger.error("[TaskComplete Hook] Failed (non-fatal):", error)
+		}
+	}
+
+	/**
+	 * Indexes the completed conversation in the knowledge store for future semantic search.
+	 * Non-blocking and best-effort — failures are silently logged.
+	 */
+	private async indexConversationInKnowledgeStore(config: TaskConfig): Promise<void> {
+		try {
+			const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+			const manager = KnowledgeStoreManager.getInstance()
+			if (!manager) {
+				return
+			}
+
+			const history = config.messageState.getApiConversationHistory()
+			const messages = history.map((msg) => ({
+				role: msg.role,
+				content: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
+			}))
+
+			await manager.onTaskComplete(config.taskId, messages, undefined, config.cwd)
+		} catch (error) {
+			Logger.warn(`[KnowledgeStore] Failed to index conversation (non-fatal): ${error}`)
 		}
 	}
 

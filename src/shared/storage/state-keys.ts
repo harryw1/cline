@@ -288,6 +288,16 @@ const USER_SETTINGS_FIELDS = {
 	openTelemetryLogBatchSize: { default: 512 as number | undefined },
 	openTelemetryLogBatchTimeout: { default: 5000 as number | undefined },
 	openTelemetryLogMaxQueueSize: { default: 2048 as number | undefined },
+
+	// Knowledge Store Settings
+	knowledgeStoreEnabled: { default: true as boolean },
+	knowledgeStoreEmbeddingModel: { default: "nomic-embed-text" as string },
+	knowledgeStoreAutoIndexConversations: { default: true as boolean },
+	knowledgeStoreAutoIndexDocuments: { default: false as boolean },
+	knowledgeStoreMaxContextTokens: { default: 2000 as number },
+	knowledgeStoreDocumentExtensions: {
+		default: ".md,.txt,.ts,.js,.py,.rs,.go,.java,.json,.yaml,.yml" as string,
+	},
 } satisfies FieldDefinitions
 
 const SETTINGS_FIELDS = { ...API_HANDLER_SETTINGS_FIELDS, ...USER_SETTINGS_FIELDS }
