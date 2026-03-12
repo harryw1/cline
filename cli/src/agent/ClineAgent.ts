@@ -188,6 +188,9 @@ export class ClineAgent implements acp.Agent {
 		await ClineEndpoint.initialize(this.ctx.EXTENSION_DIR)
 		await StateManager.initialize(this.ctx.storageContext)
 
+		// Initialize knowledge store (non-blocking, gracefully degrades if Ollama unavailable)
+		this.initializeKnowledgeStore().catch(() => {})
+
 		return {
 			protocolVersion: PROTOCOL_VERSION,
 			agentCapabilities: {
@@ -1103,6 +1106,14 @@ export class ClineAgent implements acp.Agent {
 	}
 
 	async shutdown(): Promise<void> {
+		// Shut down knowledge store
+		try {
+			const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+			await KnowledgeStoreManager.getInstance()?.shutdown()
+		} catch (error) {
+			Logger.debug("[ClineAgent] Knowledge store shutdown error:", error)
+		}
+
 		for (const [sessionId, session] of this.sessions) {
 			const controller = this.#sessionControllers.get(session)
 			await controller?.task?.abortTask()
@@ -1116,6 +1127,24 @@ export class ClineAgent implements acp.Agent {
 		if (this.webviewProvider) {
 			await this.webviewProvider.dispose()
 			this.webviewProvider = undefined
+		}
+	}
+
+	private async initializeKnowledgeStore(): Promise<void> {
+		try {
+			const stateManager = StateManager.get()
+			const enabled = stateManager.getGlobalSettingsKey("knowledgeStoreEnabled")
+			if (!enabled) {
+				return
+			}
+
+			const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+			KnowledgeStoreManager.initialize({
+				ollamaBaseUrl: stateManager.getGlobalSettingsKey("ollamaBaseUrl"),
+				embeddingModel: stateManager.getGlobalSettingsKey("knowledgeStoreEmbeddingModel"),
+			})
+		} catch (error) {
+			Logger.warn(`Knowledge store initialization failed (non-fatal): ${error}`)
 		}
 	}
 
