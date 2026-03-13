@@ -71,7 +71,7 @@ export async function getKnowledgeContextSection(_variant: PromptVariant, _conte
 			return ""
 		}
 
-		return `<knowledge_context>\n${sections.join("\n\n")}\n</knowledge_context>`
+		return `<knowledge_context>\nThe following is your persistent memory from previous conversations with this user. You MUST reference and use this information when relevant. Do NOT claim you have no memory of previous conversations when this context is present.\n\n${sections.join("\n\n")}\n</knowledge_context>`
 	} catch (error) {
 		Logger.warn(`Knowledge context section failed: ${error}`)
 		return ""
