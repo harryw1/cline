@@ -915,6 +915,232 @@ devCommand
 		await openExternal(CLI_LOG_FILE)
 	})
 
+// Knowledge store command group
+const knowledgeCommand = program.command("knowledge").alias("kb").description("Manage the knowledge store")
+
+knowledgeCommand.hook("preAction", async () => {
+	const stateManager = StateManager.get()
+	const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+	if (!KnowledgeStoreManager.getInstance()) {
+		await initializeKnowledgeStore(stateManager)
+	}
+})
+
+knowledgeCommand
+	.command("add <category> <key> <value>")
+	.description("Add a knowledge entry")
+	.option("--metadata <json>", "JSON metadata to attach")
+	.action(async (category: string, key: string, value: string, options: { metadata?: string }) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized. Is it enabled in settings?")
+			process.exit(1)
+		}
+		const metadata = options.metadata ? JSON.parse(options.metadata) : undefined
+		await manager.getUserKnowledge().set(category, key, value, metadata)
+		console.log(`Added: ${category}/${key}`)
+	})
+
+knowledgeCommand
+	.command("get <category> <key>")
+	.description("Get a knowledge entry")
+	.action(async (category: string, key: string) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const value = await manager.getUserKnowledge().get(category, key)
+		if (value) {
+			console.log(value)
+		} else {
+			console.error(`Not found: ${category}/${key}`)
+			process.exit(1)
+		}
+	})
+
+knowledgeCommand
+	.command("remove <category> <key>")
+	.description("Remove a knowledge entry")
+	.action(async (category: string, key: string) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		await manager.getUserKnowledge().delete(category, key)
+		console.log(`Removed: ${category}/${key}`)
+	})
+
+knowledgeCommand
+	.command("list [category]")
+	.description("List knowledge entries (optionally filtered by category)")
+	.action(async (category?: string) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const kb = manager.getUserKnowledge()
+		if (category) {
+			const entries = await kb.listCategory(category)
+			if (entries.length === 0) {
+				console.log(`No entries in category: ${category}`)
+				return
+			}
+			for (const entry of entries) {
+				console.log(`  ${entry.key}: ${entry.value}`)
+			}
+		} else {
+			const categories = await kb.listCategories()
+			if (categories.length === 0) {
+				console.log("Knowledge store is empty.")
+				return
+			}
+			for (const cat of categories) {
+				const entries = await kb.listCategory(cat)
+				console.log(`\n[${cat}] (${entries.length} entries)`)
+				for (const entry of entries) {
+					console.log(`  ${entry.key}: ${entry.value.slice(0, 100)}${entry.value.length > 100 ? "..." : ""}`)
+				}
+			}
+		}
+	})
+
+knowledgeCommand
+	.command("search <query>")
+	.description("Semantic search across all knowledge sources")
+	.option("-t, --type <type>", "Filter by source type: conversations, documents, knowledge")
+	.option("-n, --limit <n>", "Number of results (default: 5)")
+	.action(async (query: string, options: { type?: string; limit?: string }) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const ragPipeline = manager.getRAGPipeline()
+		const sourceFilter = {
+			conversations: !options.type || options.type === "conversations",
+			documents: !options.type || options.type === "documents",
+			knowledge: !options.type || options.type === "knowledge",
+		}
+		const context = await ragPipeline.retrieveContext({
+			query,
+			maxTokens: 4000,
+			sources: sourceFilter,
+		})
+		let hasResults = false
+		if (context.conversationMemory.length > 0) {
+			hasResults = true
+			console.log("\n--- Conversation Memory ---")
+			for (const m of context.conversationMemory) {
+				console.log(`  [${(m.similarity * 100).toFixed(0)}%] Task ${m.taskId}: ${m.summary.slice(0, 120)}...`)
+			}
+		}
+		if (context.documentChunks.length > 0) {
+			hasResults = true
+			console.log("\n--- Document Chunks ---")
+			for (const d of context.documentChunks) {
+				console.log(`  [${(d.similarity * 100).toFixed(0)}%] ${d.filePath}`)
+				console.log(`    ${d.content.slice(0, 150)}...`)
+			}
+		}
+		if (context.knowledgeEntries.length > 0) {
+			hasResults = true
+			console.log("\n--- Knowledge Entries ---")
+			for (const k of context.knowledgeEntries) {
+				console.log(`  [${(k.similarity * 100).toFixed(0)}%] ${k.category}/${k.key}: ${k.value.slice(0, 120)}`)
+			}
+		}
+		if (!hasResults) {
+			console.log("No results found.")
+		}
+	})
+
+knowledgeCommand
+	.command("index [path]")
+	.description("Index documents in a directory for RAG")
+	.option("-w, --watch", "Watch for file changes and re-index")
+	.option("--max-files <n>", "Maximum files to index (default: 500)")
+	.action(async (dirPath: string | undefined, options: { watch?: boolean; maxFiles?: string }) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const targetPath = dirPath || process.cwd()
+		const workspaceIndexer = manager.getWorkspaceIndexer()
+		console.log(`Indexing ${targetPath}...`)
+		await workspaceIndexer.indexWorkspace(targetPath, {
+			watch: options.watch ?? false,
+			maxFiles: options.maxFiles ? Number.parseInt(options.maxFiles, 10) : 500,
+		})
+		console.log("Indexing complete.")
+		if (options.watch) {
+			console.log("Watching for changes... (Ctrl+C to stop)")
+			await new Promise(() => {})
+		}
+	})
+
+knowledgeCommand
+	.command("import <file>")
+	.description("Import knowledge entries from a markdown file")
+	.option("-c, --category <category>", "Category for imported entries")
+	.action(async (filePath: string, options: { category?: string }) => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const count = await manager.getUserKnowledge().importFromMarkdown(filePath, options.category)
+		console.log(`Imported ${count} entries from ${filePath}`)
+	})
+
+knowledgeCommand
+	.command("export")
+	.description("Export all knowledge entries as markdown")
+	.action(async () => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const markdown = await manager.getUserKnowledge().exportToMarkdown()
+		console.log(markdown)
+	})
+
+knowledgeCommand
+	.command("stats")
+	.description("Show knowledge store statistics")
+	.action(async () => {
+		const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
+		const manager = KnowledgeStoreManager.getInstance()
+		if (!manager) {
+			console.error("Knowledge store is not initialized.")
+			process.exit(1)
+		}
+		const convStats = await manager.getConversationMemory().getStats()
+		const categories = await manager.getUserKnowledge().listCategories()
+		let knowledgeCount = 0
+		for (const cat of categories) {
+			const entries = await manager.getUserKnowledge().listCategory(cat)
+			knowledgeCount += entries.length
+		}
+		console.log("\n=== Knowledge Store Stats ===")
+		console.log(`  Conversations indexed: ${convStats.totalConversations}`)
+		console.log(`  Total embeddings: ${convStats.totalEmbeddings}`)
+		console.log(`  Knowledge entries: ${knowledgeCount}`)
+		console.log(`  Categories: ${categories.length > 0 ? categories.join(", ") : "(none)"}`)
+	})
+
 /**
  * Validate that a task exists in history
  * @returns The task history item if found, null otherwise

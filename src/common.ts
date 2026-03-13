@@ -195,6 +195,20 @@ async function initializeKnowledgeStore(stateManager: StateManager): Promise<voi
 			ollamaBaseUrl: stateManager.getGlobalSettingsKey("ollamaBaseUrl"),
 			embeddingModel: stateManager.getGlobalSettingsKey("knowledgeStoreEmbeddingModel"),
 		})
+
+		// Auto-index workspace documents if enabled (fire-and-forget)
+		if (stateManager.getGlobalSettingsKey("knowledgeStoreAutoIndexDocuments")) {
+			try {
+				const workspacePaths = (await HostProvider.workspace.getWorkspacePaths({})).paths
+				if (workspacePaths.length > 0) {
+					const { WorkspaceIndexer } = await import("@/core/storage/knowledge/WorkspaceIndexer")
+					const indexer = KnowledgeStoreManager.getInstance()?.getWorkspaceIndexer() ?? new WorkspaceIndexer()
+					indexer.indexWorkspace(workspacePaths[0], { watch: true }).catch(() => {})
+				}
+			} catch (error) {
+				Logger.debug(`Knowledge store auto-indexing failed (non-fatal): ${error}`)
+			}
+		}
 	} catch (error) {
 		Logger.warn(`Knowledge store initialization failed (non-fatal): ${error}`)
 	}

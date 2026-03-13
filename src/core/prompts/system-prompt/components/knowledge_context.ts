@@ -3,9 +3,10 @@ import { Logger } from "@/shared/services/Logger"
 import type { PromptVariant, SystemPromptContext } from "../types"
 
 /**
- * Retrieves relevant knowledge context from the knowledge store and formats it
- * for inclusion in the system prompt. Uses the RAG pipeline for semantic search
- * when available, with a fallback to recent conversation memories.
+ * Injects static, session-wide knowledge into the system prompt.
+ * Only includes user knowledge entries and recent conversation memory summaries.
+ * Per-message RAG (document chunks, semantic search) is handled by MessageRAGInjector
+ * which prepends context to user messages at API call time.
  */
 export async function getKnowledgeContextSection(_variant: PromptVariant, _context: SystemPromptContext): Promise<string> {
 	try {
@@ -14,57 +15,38 @@ export async function getKnowledgeContextSection(_variant: PromptVariant, _conte
 			return ""
 		}
 
-		const ragPipeline = manager.getRAGPipeline()
-		const query = _context.taskMessage
-
-		// Try RAG pipeline first (uses embeddings for semantic search)
-		// No workspace filter — enables cross-workspace memory recall
-		if (query) {
-			try {
-				const ragContext = await ragPipeline.retrieveContext({
-					query,
-					maxTokens: 2000,
-					sources: { conversations: true, documents: true, knowledge: true },
-				})
-
-				const formatted = ragPipeline.formatContextForPrompt(ragContext)
-				if (formatted) {
-					return formatted
-				}
-			} catch (error) {
-				Logger.warn(`Knowledge context RAG retrieval failed, falling back to recency: ${error}`)
-			}
-		}
-
-		// Fallback: retrieve recent conversation memories (no embeddings needed)
-		// No workspace filter — enables cross-workspace memory recall
-		const conversationMemory = manager.getConversationMemory()
-		const recentMemories = conversationMemory.getRecentMemories({
-			limit: 5,
-		})
-
-		// Also retrieve user knowledge entries
-		const userKnowledge = manager.getUserKnowledge()
-		const categories = await userKnowledge.listCategories()
-
 		const sections: string[] = []
 
-		if (recentMemories.length > 0) {
-			const items = recentMemories.map((m) => `- ${m.summary}`).join("\n")
-			sections.push(`<persistent_memory>\n${items}\n</persistent_memory>`)
+		// Recent conversation memory summaries (recency-based, no embeddings needed)
+		try {
+			const conversationMemory = manager.getConversationMemory()
+			const recentMemories = conversationMemory.getRecentMemories({ limit: 5 })
+			if (recentMemories.length > 0) {
+				const items = recentMemories.map((m) => `- ${m.summary}`).join("\n")
+				sections.push(`<persistent_memory>\n${items}\n</persistent_memory>`)
+			}
+		} catch (error) {
+			Logger.debug(`Knowledge context: Failed to get recent memories: ${error}`)
 		}
 
-		if (categories.length > 0) {
-			const knowledgeItems: string[] = []
-			for (const category of categories) {
-				const entries = await userKnowledge.listCategory(category)
-				for (const e of entries) {
-					knowledgeItems.push(`- ${category}/${e.key}: ${e.value}`)
+		// User knowledge entries (small, stable, relevant to every message)
+		try {
+			const userKnowledge = manager.getUserKnowledge()
+			const categories = await userKnowledge.listCategories()
+			if (categories.length > 0) {
+				const knowledgeItems: string[] = []
+				for (const category of categories) {
+					const entries = await userKnowledge.listCategory(category)
+					for (const e of entries) {
+						knowledgeItems.push(`- ${category}/${e.key}: ${e.value}`)
+					}
+				}
+				if (knowledgeItems.length > 0) {
+					sections.push(`<user_preferences>\n${knowledgeItems.join("\n")}\n</user_preferences>`)
 				}
 			}
-			if (knowledgeItems.length > 0) {
-				sections.push(`<user_preferences>\n${knowledgeItems.join("\n")}\n</user_preferences>`)
-			}
+		} catch (error) {
+			Logger.debug(`Knowledge context: Failed to get user knowledge: ${error}`)
 		}
 
 		if (sections.length === 0) {

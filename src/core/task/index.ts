@@ -926,6 +926,57 @@ export class Task {
 		return newDeletedRange || [0, 0]
 	}
 
+	/**
+	 * Extract the full text of the latest user message from conversation history.
+	 * Used for RAG query quality — does NOT truncate.
+	 */
+	private getLatestUserMessageText(history: ClineStorageMessage[]): string | undefined {
+		const lastUserMsg = [...history].reverse().find((m) => m.role === "user")
+		if (!lastUserMsg) {
+			return undefined
+		}
+		if (typeof lastUserMsg.content === "string") {
+			return lastUserMsg.content
+		}
+		if (Array.isArray(lastUserMsg.content)) {
+			return lastUserMsg.content
+				.filter((b): b is { type: "text"; text: string } => b.type === "text")
+				.map((b) => b.text)
+				.join(" ")
+		}
+		return undefined
+	}
+
+	/**
+	 * Clone the conversation history and prepend a RAG context block
+	 * to the last user message's text content. The result is for the API
+	 * call only — it must NOT be saved back to persistent storage.
+	 */
+	private prependRAGToLastUserMessage(history: ClineStorageMessage[], contextBlock: string): ClineStorageMessage[] {
+		const cloned = [...history]
+		for (let i = cloned.length - 1; i >= 0; i--) {
+			if (cloned[i].role === "user") {
+				const msg = { ...cloned[i] }
+				if (typeof msg.content === "string") {
+					msg.content = contextBlock + msg.content
+				} else if (Array.isArray(msg.content)) {
+					const content = [...msg.content]
+					const textIdx = content.findIndex((b) => b.type === "text")
+					if (textIdx >= 0) {
+						const existing = content[textIdx] as { type: "text"; text: string }
+						content[textIdx] = { type: "text" as const, text: contextBlock + existing.text }
+					} else {
+						content.unshift({ type: "text" as const, text: contextBlock })
+					}
+					msg.content = content as ClineStorageMessage["content"]
+				}
+				cloned[i] = msg
+				break
+			}
+		}
+		return cloned
+	}
+
 	private async runUserPromptSubmitHook(
 		userContent: ClineContent[],
 		_context: "initial_task" | "resume" | "feedback",
@@ -1950,8 +2001,29 @@ export class Task {
 			// saves task history item which we use to keep track of conversation history deleted range
 		}
 
+		// Per-message RAG injection: prepend relevant document/conversation context to the user message
+		let ragEnrichedHistory = contextManagementMetadata.truncatedConversationHistory
+		if (this.stateManager.getGlobalSettingsKey("knowledgeStoreEnabled")) {
+			const fullUserMessage = this.getLatestUserMessageText(ragEnrichedHistory)
+			if (fullUserMessage) {
+				try {
+					const { retrieveMessageRAGContext } = await import("@/core/storage/knowledge/MessageRAGInjector")
+					const ragResult = await retrieveMessageRAGContext({
+						query: fullUserMessage,
+						workspacePath: this.cwd,
+						maxTokens: this.stateManager.getGlobalSettingsKey("knowledgeStoreMaxContextTokens"),
+					})
+					if (ragResult) {
+						ragEnrichedHistory = this.prependRAGToLastUserMessage(ragEnrichedHistory, ragResult.contextBlock)
+					}
+				} catch (error) {
+					// Non-fatal: continue without RAG context
+				}
+			}
+		}
+
 		// Response API requires native tool calls to be enabled
-		const stream = this.api.createMessage(systemPrompt, contextManagementMetadata.truncatedConversationHistory, tools)
+		const stream = this.api.createMessage(systemPrompt, ragEnrichedHistory, tools)
 
 		const iterator = stream[Symbol.asyncIterator]()
 

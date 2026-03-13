@@ -6,6 +6,7 @@ import { KnowledgeDatabase } from "./KnowledgeDatabase"
 import { RAGPipeline } from "./RAGPipeline"
 import { UserKnowledgeBase } from "./UserKnowledgeBase"
 import { VectorSearch } from "./VectorSearch"
+import { WorkspaceIndexer } from "./WorkspaceIndexer"
 
 export class KnowledgeStoreManager {
 	private static instance: KnowledgeStoreManager | null = null
@@ -17,6 +18,7 @@ export class KnowledgeStoreManager {
 	private documentIndexer: DocumentIndexer
 	private userKnowledge: UserKnowledgeBase
 	private ragPipeline: RAGPipeline
+	private workspaceIndexer: WorkspaceIndexer | null = null
 
 	private constructor(
 		database: KnowledgeDatabase,
@@ -104,6 +106,13 @@ export class KnowledgeStoreManager {
 		return this.userKnowledge
 	}
 
+	getWorkspaceIndexer(): WorkspaceIndexer {
+		if (!this.workspaceIndexer) {
+			this.workspaceIndexer = new WorkspaceIndexer()
+		}
+		return this.workspaceIndexer
+	}
+
 	async onTaskComplete(
 		taskId: string,
 		messages: Array<{ role: string; content: string }>,
@@ -124,6 +133,10 @@ export class KnowledgeStoreManager {
 
 	async shutdown(): Promise<void> {
 		try {
+			if (this.workspaceIndexer) {
+				await this.workspaceIndexer.dispose()
+				this.workspaceIndexer = null
+			}
 			this.database.close()
 			KnowledgeStoreManager.instance = null
 			Logger.log("KnowledgeStoreManager: Shut down successfully")
