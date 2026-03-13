@@ -918,11 +918,18 @@ devCommand
 // Knowledge store command group
 const knowledgeCommand = program.command("knowledge").alias("kb").description("Manage the knowledge store")
 
-knowledgeCommand.hook("preAction", async () => {
-	const stateManager = StateManager.get()
+knowledgeCommand.hook("preAction", async (thisCommand) => {
+	// Knowledge subcommands need the full CLI context (StateManager, HostProvider, etc.)
+	// Initialize it if not already done, using any --config/--cwd options from the parent command.
+	try {
+		StateManager.get()
+	} catch {
+		const parentOpts = thisCommand.parent?.opts() ?? {}
+		await initializeCli({ config: parentOpts.config, cwd: parentOpts.cwd })
+	}
 	const { KnowledgeStoreManager } = await import("@/core/storage/knowledge")
 	if (!KnowledgeStoreManager.getInstance()) {
-		await initializeKnowledgeStore(stateManager)
+		await initializeKnowledgeStore(StateManager.get())
 	}
 })
 
