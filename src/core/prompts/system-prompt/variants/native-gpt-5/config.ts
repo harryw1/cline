@@ -1,10 +1,4 @@
-import {
-	isGptOssModelFamily,
-	isGPT5ModelFamily,
-	isGPT51Model,
-	isGPT52Model,
-	isNextGenModelProvider,
-} from "@utils/model-utils"
+import { isGPT5ModelFamily, isGPT51Model, isGPT52Model, isGptOssModelFamily, isNextGenModelProvider } from "@utils/model-utils"
 import { ModelFamily } from "@/shared/prompts"
 import { Logger } from "@/shared/services/Logger"
 import { ClineDefaultTool } from "@/shared/tools"
@@ -57,6 +51,7 @@ export const config = createVariant(ModelFamily.NATIVE_GPT_5)
 		SystemPromptSection.CAPABILITIES,
 		SystemPromptSection.FEEDBACK,
 		SystemPromptSection.RULES,
+		SystemPromptSection.KNOWLEDGE_CONTEXT,
 		SystemPromptSection.SYSTEM_INFO,
 		SystemPromptSection.OBJECTIVE,
 		SystemPromptSection.USER_INSTRUCTIONS,

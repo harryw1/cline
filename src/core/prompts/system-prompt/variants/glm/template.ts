@@ -8,6 +8,8 @@ export const baseTemplate = `{{${SystemPromptSection.AGENT_ROLE}}}
 
 ## {{${SystemPromptSection.RULES}}}
 
+## {{${SystemPromptSection.KNOWLEDGE_CONTEXT}}}
+
 ## {{${SystemPromptSection.ACT_VS_PLAN}}}
 
 ## {{${SystemPromptSection.CAPABILITIES}}}

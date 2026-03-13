@@ -33,6 +33,10 @@ export const BASE = `{{${SystemPromptSection.AGENT_ROLE}}}
 
 ====
 
+{{${SystemPromptSection.KNOWLEDGE_CONTEXT}}}
+
+====
+
 {{${SystemPromptSection.SYSTEM_INFO}}}
 
 ====

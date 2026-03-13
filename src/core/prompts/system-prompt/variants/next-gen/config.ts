@@ -42,6 +42,7 @@ export const config = createVariant(ModelFamily.NEXT_GEN)
 		SystemPromptSection.CAPABILITIES,
 		SystemPromptSection.FEEDBACK,
 		SystemPromptSection.RULES,
+		SystemPromptSection.KNOWLEDGE_CONTEXT,
 		SystemPromptSection.SYSTEM_INFO,
 		SystemPromptSection.OBJECTIVE,
 		SystemPromptSection.USER_INSTRUCTIONS,

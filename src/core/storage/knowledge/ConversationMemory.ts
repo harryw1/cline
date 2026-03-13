@@ -127,6 +127,47 @@ export class ConversationMemory {
 		}
 	}
 
+	/**
+	 * Retrieve recent conversation memories by recency (no embeddings needed).
+	 * Useful as a fallback when the embedding service is unavailable.
+	 */
+	getRecentMemories(options?: { limit?: number; workspacePath?: string }): MemoryResult[] {
+		try {
+			const limit = options?.limit ?? 5
+			let sql = "SELECT task_id, summary, key_topics, workspace_path FROM conversation_memory"
+			const params: any[] = []
+
+			if (options?.workspacePath) {
+				sql += " WHERE workspace_path = ?"
+				params.push(options.workspacePath)
+			}
+
+			sql += " ORDER BY created_at DESC LIMIT ?"
+			params.push(limit)
+
+			const rows = this.db
+				.getDb()
+				.prepare(sql)
+				.all(...params) as Array<{
+				task_id: string
+				summary: string
+				key_topics: string
+				workspace_path: string | null
+			}>
+
+			return rows.map((row) => ({
+				taskId: row.task_id,
+				summary: row.summary,
+				relevantContent: row.summary,
+				similarity: 1.0, // recency-based, not similarity-based
+				keyTopics: JSON.parse(row.key_topics),
+			}))
+		} catch (error) {
+			Logger.warn(`ConversationMemory: Failed to get recent memories: ${error}`)
+			return []
+		}
+	}
+
 	async isIndexed(taskId: string): Promise<boolean> {
 		const row = this.db.getDb().prepare("SELECT 1 FROM conversation_memory WHERE task_id = ?").get(taskId) as
 			| { 1: number }

@@ -31,6 +31,7 @@ export const config = createVariant(ModelFamily.TRINITY)
 		SystemPromptSection.ACT_VS_PLAN,
 		SystemPromptSection.CAPABILITIES,
 		SystemPromptSection.RULES,
+		SystemPromptSection.KNOWLEDGE_CONTEXT,
 		SystemPromptSection.SYSTEM_INFO,
 		SystemPromptSection.OBJECTIVE,
 		SystemPromptSection.USER_INSTRUCTIONS,

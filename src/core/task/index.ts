@@ -1875,6 +1875,21 @@ export class Task {
 			visible: visibleTabPaths.slice(0, cap),
 		}
 
+		// Extract the latest user message for knowledge store retrieval
+		const apiHistory = this.messageStateHandler.getApiConversationHistory()
+		const latestUserMsg = [...apiHistory].reverse().find((m) => m.role === "user")
+		const taskMessage = latestUserMsg
+			? Array.isArray(latestUserMsg.content)
+				? latestUserMsg.content
+						.filter((b): b is { type: "text"; text: string } => b.type === "text")
+						.map((b) => b.text)
+						.join(" ")
+						.slice(0, 500)
+				: typeof latestUserMsg.content === "string"
+					? latestUserMsg.content.slice(0, 500)
+					: undefined
+			: undefined
+
 		const promptContext: SystemPromptContext = {
 			cwd: this.cwd,
 			ide,
@@ -1906,6 +1921,7 @@ export class Task {
 				this.stateManager.getGlobalStateKey("nativeToolCallEnabled"),
 			enableParallelToolCalling: this.isParallelToolCallingEnabled(),
 			terminalExecutionMode: this.terminalExecutionMode,
+			taskMessage,
 		}
 
 		// Notify user if any conditional rules were applied for this request
