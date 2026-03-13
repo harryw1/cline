@@ -18,11 +18,11 @@ export async function getKnowledgeContextSection(_variant: PromptVariant, _conte
 		const query = _context.taskMessage
 
 		// Try RAG pipeline first (uses embeddings for semantic search)
+		// No workspace filter — enables cross-workspace memory recall
 		if (query) {
 			try {
 				const ragContext = await ragPipeline.retrieveContext({
 					query,
-					workspacePath: _context.cwd,
 					maxTokens: 2000,
 					sources: { conversations: true, documents: true, knowledge: true },
 				})
@@ -37,10 +37,10 @@ export async function getKnowledgeContextSection(_variant: PromptVariant, _conte
 		}
 
 		// Fallback: retrieve recent conversation memories (no embeddings needed)
+		// No workspace filter — enables cross-workspace memory recall
 		const conversationMemory = manager.getConversationMemory()
 		const recentMemories = conversationMemory.getRecentMemories({
-			limit: 3,
-			workspacePath: _context.cwd,
+			limit: 5,
 		})
 
 		// Also retrieve user knowledge entries
